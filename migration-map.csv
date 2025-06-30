@@ -1,0 +1,17 @@
+source,destination,status
+01-requirements.md,docs/01-requirements.md,completed
+03-system-architecture.md,docs/architecture/03-system-architecture.md,completed
+04-team-structure.md,docs/team/04-team-structure.md,completed
+06-multitenancy.md,docs/architecture/06-multitenancy.md,completed
+07-tools-and-workflows.md,docs/workflows/07-tools-and-workflows.md,completed
+08-security.md,docs/security/08-security.md,completed
+09-timeline.md,docs/timeline/09-timeline.md,completed
+10-publishing.md,docs/10-publishing.md,completed
+AI-summarization-service-setup.md,docs/ai/ai-summarization-service-setup.md,completed
+oss_revival_candidates.md,docs/oss/oss-revival-candidates.md,completed
+README-POC.md,docs/poc/readme-poc.md,completed
+requirements-mapping-setup.md,docs/requirements-mapping-setup.md,completed
+tech-stack-containerization.md,docs/architecture/tech-stack-containerization.md,completed
+technology-stack-final.md,docs/architecture/technology-stack-final.md,completed
+oss-license-scan.sh,scripts/oss-license-scan.sh,completed
+poc-setup.sh,scripts/poc-setup.sh,completed

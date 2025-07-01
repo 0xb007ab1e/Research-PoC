@@ -1,0 +1,44 @@
+# Core Python packages
+pip
+setuptools
+wheel
+
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+asyncpg
+sqlalchemy
+
+# Authentication and Security
+python-jose[cryptography]
+passlib[bcrypt]
+cryptography
+httpx
+
+# Configuration and validation
+pydantic
+pydantic-settings
+
+# Logging and observability
+structlog
+prometheus-client
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-httpx
+opentelemetry-instrumentation-asyncpg
+opentelemetry-exporter-otlp-proto-grpc
+
+# Database migrations
+alembic
+
+# Development and testing
+pytest
+pytest-asyncio
+pytest-postgresql
+pytest-mock
+respx
+pytest-cov

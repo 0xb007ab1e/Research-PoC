@@ -1,0 +1,201 @@
+replicaCount: 2
+
+image:
+  repository: gcr.io/your-project/context-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+
+nameOverride: ""
+
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podLabels: {}
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8001
+  targetPort: 8001
+  # Enable TLS
+  tls:
+    enabled: true
+    secretName: context-service-tls
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: context-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# PodDisruptionBudget configuration
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Vault Agent configuration
+vault:
+  enabled: true
+  agent:
+    image: "vault:1.15.2"
+    role: "context-service"
+    serviceAccount: "context-service"
+    templates:
+      - name: "db-credentials"
+        path: "/vault/secrets/db-credentials"
+        template: |
+          {{ with secret "database/creds/context-service" }}
+          export DB_USERNAME="{{ .Data.username }}"
+          export DB_PASSWORD="{{ .Data.password }}"
+          {{ end }}
+      - name: "vector-db-credentials"
+        path: "/vault/secrets/vector-db-credentials"
+        template: |
+          {{ with secret "secret/data/context-service/vector-db" }}
+          export VECTOR_DB_API_KEY="{{ .Data.data.api_key }}"
+          export VECTOR_DB_URL="{{ .Data.data.url }}"
+          {{ end }}
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - context-service
+        topologyKey: kubernetes.io/hostname
+
+# TLS Certificate configuration
+tls:
+  enabled: true
+  # Secret containing TLS certificate and key
+  secretName: context-service-tls
+  # CA certificate secret
+  caSecretName: mcp-ca-cert
+  # Mount path for certificates
+  mountPath: /etc/certs
+  # Enable mutual TLS
+  mutualTLS: true
+
+# Additional environment variables
+extraEnv:
+  - name: ENVIRONMENT
+    value: "production"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: LOG_FORMAT
+    value: "json"
+  - name: ENABLE_TELEMETRY
+    value: "true"
+  - name: ENABLE_METRICS
+    value: "true"
+  - name: MAX_CONTEXT_SIZE
+    value: "4096"
+  - name: VECTOR_DIMENSIONS
+    value: "1536"
+  # TLS Configuration
+  - name: ENABLE_TLS
+    value: "true"
+  - name: ENABLE_MUTUAL_TLS
+    value: "true"
+  - name: TLS_CERTS_DIR
+    value: "/etc/certs"
+  - name: AUTH_SERVICE_URL
+    value: "https://auth-service:8443"
+  - name: REQUESTS_CA_BUNDLE
+    value: "/etc/certs/ca-cert.pem"
+
+# Network Policy configuration
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: default
+      ports:
+      - protocol: TCP
+        port: 8000
+  egress:
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: vault-system
+      ports:
+      - protocol: TCP
+        port: 8200
+    - to: []
+      ports:
+      - protocol: TCP
+        port: 5432  # PostgreSQL
+      - protocol: TCP
+        port: 443   # Vector DB HTTPS
+      - protocol: TCP
+        port: 53    # DNS
+      - protocol: UDP
+        port: 53    # DNS

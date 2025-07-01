@@ -1,0 +1,105 @@
+replicaCount: 1
+
+image:
+  repository: gcr.io/your-project/text-summarization-service
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+
+nameOverride: ""
+
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+sidecar:
+  enabled: false
+  name: "example-sidecar"
+  image: "example/sidecar:latest"
+  resources: {}
+
+# Vault Agent configuration
+vault:
+  enabled: true
+  agent:
+    image: "vault:1.15.2"
+    role: "text-summarization"
+    serviceAccount: "text-summarization-service"
+    templates:
+      - name: "db-credentials"
+        path: "/vault/secrets/db-credentials"
+        template: |
+          {{ with secret "database/creds/readwrite" }}
+          export DB_USERNAME="{{ .Data.username }}"
+          export DB_PASSWORD="{{ .Data.password }}"
+          {{ end }}
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+# mTLS (Mutual TLS) Configuration
+mtls:
+  enabled: true
+  enforce: false  # Set to true in production
+  clientCertSecret: mcp-client-cert
+  trustedCAs:
+    - mcp-ca-cert
+  verificationMode: "permissive"
+  minTlsVersion: "1.2"
+  cipherSuites: []
+  rotation:
+    enabled: true
+    checkInterval: 6
+    renewBefore: 7
+
+extraContainers: []
+
+# Additional array of environment variables to set in the container
+extraEnv: []
+
+# Horizontal Pod Autoscaler configuration
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

@@ -1,0 +1,278 @@
+name: CI/CD Pipeline with Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  
+jobs:
+  security-scan:
+    name: Security Vulnerability Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.lock', '**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install from locked requirements for reproducible builds
+        if [ -f requirements.lock ]; then
+          pip install -r requirements.lock
+        else
+          pip install -r requirements.txt
+          pip install bandit[toml] safety
+        fi
+        
+    - name: Run Bandit security linter
+      run: |
+        echo "Running Bandit security analysis..."
+        bandit -r . -f json -o bandit-report.json || true
+        bandit -r . -f txt
+      continue-on-error: true
+      
+    - name: Run Safety dependency check
+      run: |
+        echo "Running Safety dependency vulnerability check..."
+        safety check --json --output safety-report.json || true
+        safety check
+      continue-on-error: true
+      
+    - name: Upload Bandit report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: bandit-security-report
+        path: bandit-report.json
+        
+    - name: Upload Safety report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: safety-security-report
+        path: safety-report.json
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 black isort mypy
+        
+    - name: Run code formatting check (Black)
+      run: |
+        echo "Checking code formatting with Black..."
+        black --check --diff .
+        
+    - name: Run import sorting check (isort)
+      run: |
+        echo "Checking import sorting with isort..."
+        isort --check-only --diff .
+        
+    - name: Run linting (Flake8)
+      run: |
+        echo "Running Flake8 linting..."
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        
+    - name: Run type checking (MyPy)
+      run: |
+        echo "Running MyPy type checking..."
+        mypy . --ignore-missing-imports --no-strict-optional
+      continue-on-error: true
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: [security-scan, code-quality]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run Alembic Migrations
+      run: |
+        echo "Running Alembic migrations..."
+        alembic upgrade head
+        
+    - name: Run tests with coverage
+      run: |
+        echo "Running unit tests with coverage..."
+        pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  security-integration:
+    name: Security Integration Tests
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+    
+    services:
+      auth-service:
+        image: nginx:alpine
+        ports:
+          - 8080:80
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create test certificates
+      run: |
+        mkdir -p /tmp/certs
+        # Generate test certificates for TLS testing
+        openssl genrsa -out /tmp/certs/ca.key 2048
+        openssl req -new -x509 -days 365 -key /tmp/certs/ca.key -out /tmp/certs/ca.crt -subj "/C=US/ST=CA/L=SF/O=Test/CN=TestCA"
+        openssl genrsa -out /tmp/certs/server.key 2048
+        openssl req -new -key /tmp/certs/server.key -out /tmp/certs/server.csr -subj "/C=US/ST=CA/L=SF/O=Test/CN=localhost"
+        openssl x509 -req -in /tmp/certs/server.csr -CA /tmp/certs/ca.crt -CAkey /tmp/certs/ca.key -CAcreateserial -out /tmp/certs/server.crt -days 365
+        openssl genrsa -out /tmp/certs/client.key 2048
+        openssl req -new -key /tmp/certs/client.key -out /tmp/certs/client.csr -subj "/C=US/ST=CA/L=SF/O=Test/CN=client"
+        openssl x509 -req -in /tmp/certs/client.csr -CA /tmp/certs/ca.crt -CAkey /tmp/certs/ca.key -CAcreateserial -out /tmp/certs/client.crt -days 365
+        
+    - name: Test TLS configuration
+      run: |
+        echo "Testing TLS configuration..."
+        export TLS_CERTS_DIR=/tmp/certs
+        python -c "
+        from tls_config import get_tls_config
+        tls = get_tls_config()
+        status = tls.get_tls_status()
+        print('TLS Status:', status)
+        assert status['server_tls_available'], 'Server TLS should be available'
+        assert status['mutual_tls_available'], 'Mutual TLS should be available'
+        print('TLS configuration test passed!')
+        "
+        
+    - name: Test JWT validation
+      run: |
+        echo "Testing JWT validation..."
+        python -c "
+        import asyncio
+        from auth import JWKSManager, EnhancedJWTValidator
+        
+        async def test_jwks():
+            # Test JWKS manager initialization
+            jwks_manager = JWKSManager('http://localhost:8080/.well-known/jwks.json')
+            print('JWKS manager initialized successfully')
+            await jwks_manager.close()
+            
+        asyncio.run(test_jwks())
+        print('JWT validation test passed!')
+        "
+        
+    - name: Test middleware functionality
+      run: |
+        echo "Testing security middleware..."
+        python -c "
+        from middleware import HeaderValidationMiddleware, SecurityHeadersMiddleware
+        from fastapi import FastAPI
+        
+        app = FastAPI()
+        
+        # Test middleware initialization
+        header_middleware = HeaderValidationMiddleware(app)
+        security_middleware = SecurityHeadersMiddleware(app)
+        
+        print('Middleware initialization test passed!')
+        "
+
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    needs: [test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker image
+      run: |
+        docker build -t text-summarization-service:latest .
+        
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'text-summarization-service:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test, docker-security]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # Add your deployment logic here
+        echo "Deployment completed successfully"

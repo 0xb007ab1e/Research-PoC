@@ -1,4 +1,9 @@
-.PHONY: build test clean docker-build docker-up docker-down lint
+.PHONY: build test clean docker-build docker-up docker-down lint container-info
+
+# Container command configuration
+CONTAINER_CMD ?= docker
+COMPOSE_CMD ?= docker compose
+include ../../../scripts/container.mk   # auto-overrides if shim present
 
 # Go parameters
 GOCMD=go
@@ -42,19 +47,19 @@ lint:
 
 # Build Docker image
 docker-build:
-	docker build -t $(BINARY_NAME):latest .
+	$(CONTAINER_CMD) build -t $(BINARY_NAME):latest .
 
 # Start services with Docker Compose
 docker-up:
-	docker-compose up -d
+	$(COMPOSE_CMD) up -d
 
 # Stop services with Docker Compose
 docker-down:
-	docker-compose down
+	$(COMPOSE_CMD) down
 
 # Start services and view logs
 docker-logs:
-	docker-compose up
+	$(COMPOSE_CMD) up
 
 # Run the service locally (requires Vault to be running)
 run:
@@ -63,9 +68,9 @@ run:
 # Ensure compose stack is up
 ensure-stack:
 	@echo "Checking if development stack is running..."
-	@docker-compose -f ../../../docker-compose.dev.yml ps | grep -q "Up" || { \
+	@$(COMPOSE_CMD) -f ../../../docker-compose.dev.yml ps | grep -q "Up" || { \
 		echo "Starting development stack..."; \
-		docker-compose -f ../../../docker-compose.dev.yml up -d; \
+		$(COMPOSE_CMD) -f ../../../docker-compose.dev.yml up -d; \
 		echo "Waiting for services to be ready..."; \
 		sleep 15; \
 	}

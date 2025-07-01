@@ -2,7 +2,18 @@
 # Supports BuildKit, SBOM generation, Cosign signing, and kind deployments
 
 .PHONY: help install test test-all security-scan build-all build-with-sbom push-all sign-all \
-        kind-setup kind-deploy kind-test kind-cleanup local-dev clean
+        kind-setup kind-deploy kind-test kind-cleanup local-dev clean container-info
+
+# Container command configuration
+CONTAINER_CMD ?= docker
+COMPOSE_CMD ?= docker compose
+include scripts/container.mk   # auto-overrides if shim present
+
+# Compose file configuration - use override for podman-compose
+COMPOSE_FILES := -f docker-compose.dev.yml
+ifeq ($(COMPOSE_CMD),podman-compose)
+	COMPOSE_FILES := -f docker-compose.dev.yml -f compose.podman.override.yml
+endif
 
 # Configuration
 REGISTRY ?= ghcr.io
@@ -114,17 +125,24 @@ security-scan:
 # Set up Docker Buildx
 setup-buildx:
 	@echo "Setting up Docker Buildx..."
-	@docker buildx create --name mcp-builder --use --bootstrap || true
-	@docker buildx inspect --bootstrap
+	@$(CONTAINER_CMD) buildx create --name mcp-builder --use --bootstrap || true
+	@$(CONTAINER_CMD) buildx inspect --bootstrap
 
 # Build all images with BuildKit
 build-all: setup-buildx
 	@echo "Building all images with BuildKit..."
-	@for i in $(shell seq 1 $(words $(SERVICES))); do \
-		service=$(word $$i,$(SERVICES)); \
-		dockerfile=$(word $$i,$(DOCKERFILES)); \
+	@services="$(SERVICES)"; \
+	dockerfiles="$(DOCKERFILES)"; \
+	set -- $$services; \
+	for service in $$services; do \
+		shift; \
+		set -- $$dockerfiles; \
+		dockerfile=$$1; \
+		shift; \
+		dockerfiles="$$*"; \
+		set -- $$services; \
 		echo "Building $$service with BuildKit..."; \
-		docker buildx build \
+		$(CONTAINER_CMD) buildx build \
 			--platform linux/amd64,linux/arm64 \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(VERSION) \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(BRANCH) \
@@ -137,17 +155,23 @@ build-all: setup-buildx
 			.; \
 	done
 	@rm -rf /tmp/.buildx-cache && mv /tmp/.buildx-cache-new /tmp/.buildx-cache || true
-
 # Build images with SBOM generation
 build-with-sbom: setup-buildx
 	@echo "Building images with SBOM generation..."
-	@command -v syft >/dev/null 2>&1 || { echo "Installing syft..."; curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin; }
+	@command -v syft > /dev/null 2>&1 || { echo "Installing syft..."; curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin; }
 	@mkdir -p sbom-reports
-	@for i in $(shell seq 1 $(words $(SERVICES))); do \
-		service=$(word $$i,$(SERVICES)); \
-		dockerfile=$(word $$i,$(DOCKERFILES)); \
+	@services="$(SERVICES)"; \
+	dockerfiles="$(DOCKERFILES)"; \
+	set -- $$services; \
+	for service in $$services; do \
+		shift; \
+		set -- $$dockerfiles; \
+		dockerfile=$$1; \
+		shift; \
+		dockerfiles="$$*"; \
+		set -- $$services; \
 		echo "Building $$service with BuildKit and SBOM..."; \
-		docker buildx build \
+		$(CONTAINER_CMD) buildx build \
 			--platform linux/amd64,linux/arm64 \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(VERSION) \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(BRANCH) \
@@ -169,14 +193,23 @@ build-with-sbom: setup-buildx
 # Push all images
 push-all:
 	@echo "Pushing all images to registry..."
-	@for service in $(SERVICES); do \
+	@services="$(SERVICES)"; \
+	dockerfiles="$(DOCKERFILES)"; \
+	set -- $$services; \
+	for service in $$services; do \
+		shift; \
+		set -- $$dockerfiles; \
+		dockerfile=$$1; \
+		shift; \
+		dockerfiles="$$*"; \
+		set -- $$services; \
 		echo "Pushing $$service..."; \
-		docker buildx build \
+		$(CONTAINER_CMD) buildx build \
 			--platform linux/amd64,linux/arm64 \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(VERSION) \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:$(BRANCH) \
 			--tag $(REGISTRY)/$(REPO_NAME)/$$service:latest \
-			--file $(word $$i,$(DOCKERFILES)) \
+			--file $$dockerfile \
 			$(BUILD_ARGS) \
 			--push \
 			.; \
@@ -301,7 +334,7 @@ kind-cleanup:
 # Set up local development environment
 local-dev: install
 	@echo "Setting up local development environment..."
-	@docker-compose -f services/text-summarization/auth-service/docker-compose.yml up -d || true
+	@$(COMPOSE_CMD) -f services/text-summarization/auth-service/docker-compose.yml up -d || true
 	@echo "Development environment ready!"
 	@echo "Services:"
 	@echo "  - PostgreSQL: localhost:5432"
@@ -310,7 +343,7 @@ local-dev: install
 # Start local development stack
 local-stack-up:
 	@echo "Starting local development stack..."
-	docker-compose -f docker-compose.dev.yml up -d
+	$(COMPOSE_CMD) -f docker-compose.dev.yml up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 15
 	@echo "Development stack started!"
@@ -324,25 +357,25 @@ local-stack-up:
 # Stop local development stack
 local-stack-down:
 	@echo "Stopping local development stack..."
-	docker-compose -f docker-compose.dev.yml down
+	$(COMPOSE_CMD) -f docker-compose.dev.yml down
 
 # Check local development stack status
 local-stack-status:
 	@echo "Local development stack status:"
-	docker-compose -f docker-compose.dev.yml ps
+	$(COMPOSE_CMD) -f docker-compose.dev.yml ps
 
 # View logs from local development stack
 local-stack-logs:
 	@echo "Viewing logs from local development stack..."
-	docker-compose -f docker-compose.dev.yml logs -f
+	$(COMPOSE_CMD) -f docker-compose.dev.yml logs -f
 
 # Start GitHub CLI service
 gh-cli-up:
 	@echo "Starting GitHub CLI service..."
-	docker-compose -f docker-compose.dev.yml --profile gh-tools up -d gh-cli
+	$(COMPOSE_CMD) -f docker-compose.dev.yml --profile gh-tools up -d gh-cli
 	@echo "GitHub CLI service started!"
-	@echo "Access the container with: docker exec -it mcp-gh-cli-dev bash"
-	@echo "Or run commands directly: docker-compose -f docker-compose.dev.yml exec gh-cli gh --help"
+	@echo "Access the container with: $(CONTAINER_CMD) exec -it mcp-gh-cli-dev bash"
+	@echo "Or run commands directly: $(COMPOSE_CMD) -f docker-compose.dev.yml exec gh-cli gh --help"
 
 # Local run for services (with dependency management)
 local-run: local-stack-up
@@ -381,7 +414,7 @@ generate-docs:
 # Clean up build artifacts
 clean:
 	@echo "Cleaning up build artifacts..."
-	@docker system prune -f || true
+	@$(CONTAINER_CMD) system prune -f || true
 	@rm -rf /tmp/.buildx-cache
 	@rm -rf sbom-reports
 	@rm -rf security-reports

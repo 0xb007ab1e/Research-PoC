@@ -1,0 +1,45 @@
+# Podman Compose Override File
+# This file contains minimal deltas to make docker-compose.dev.yml compatible with podman-compose
+version: '3.8'
+
+services:
+  # PostgreSQL Database - use fully qualified image name
+  postgres:
+    image: docker.io/postgres:15-alpine
+
+  # HashiCorp Vault - use fully qualified image name  
+  vault:
+    image: docker.io/hashicorp/vault:latest
+    # Podman requires different approach for cap_add in rootless mode
+    # cap_add is commented out as it may not work in rootless mode
+    # cap_add:
+    #   - IPC_LOCK
+
+  # Redis Cache - use fully qualified image name
+  redis:
+    image: docker.io/redis:7-alpine
+
+  # JWKS Mock Server - use fully qualified image name
+  jwks-server:
+    image: docker.io/nginx:alpine
+
+  # Development Tools - Adminer - use fully qualified image name
+  adminer:
+    image: docker.io/adminer:latest
+
+  # GitHub CLI Tools - disabled by default, no changes needed
+  gh-cli:
+    build: ./tools/github-cli
+
+# Volumes remain the same - podman-compose handles these correctly
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Networks remain the same
+networks:
+  mcp-dev:
+    driver: bridge
+    name: mcp-development

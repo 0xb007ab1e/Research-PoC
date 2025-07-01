@@ -1,7 +1,12 @@
 # MCP Context Service Makefile
 # Provides convenient commands for development, testing, and security scanning
 
-.PHONY: help install test security-scan lint format clean run local-run run-prod docker-build
+# Container command configuration
+CONTAINER_CMD ?= docker
+COMPOSE_CMD ?= docker compose
+include ../../scripts/container.mk   # auto-overrides if shim present
+
+.PHONY: help install test security-scan lint format clean run local-run run-prod docker-build container-info
 
 # Default target
 help:
@@ -84,9 +89,9 @@ run:
 # Ensure compose stack is up
 ensure-stack:
 	@echo "Checking if development stack is running..."
-	@docker-compose -f ../../docker-compose.dev.yml ps | grep -q "Up" || { \
+	@$(COMPOSE_CMD) -f ../../docker-compose.dev.yml ps | grep -q "Up" || { \
 		echo "Starting development stack..."; \
-		docker-compose -f ../../docker-compose.dev.yml up -d; \
+		$(COMPOSE_CMD) -f ../../docker-compose.dev.yml up -d; \
 		echo "Waiting for services to be ready..."; \
 		sleep 15; \
 	}
@@ -120,7 +125,7 @@ run-prod:
 # Docker commands
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t context-service:latest .
+	$(CONTAINER_CMD) build -t context-service:latest .
 
 # CI/CD pipeline simulation
 ci: clean install lint security-scan test

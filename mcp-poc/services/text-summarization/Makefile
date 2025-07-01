@@ -1,7 +1,12 @@
 # MCP Text Summarization Service Makefile
 # Provides convenient commands for development, testing, and security scanning
 
-.PHONY: help install test security-scan security-full lint format clean run run-prod docker-build docker-scan
+# Container command configuration
+CONTAINER_CMD ?= docker
+COMPOSE_CMD ?= docker compose
+include ../../scripts/container.mk   # auto-overrides if shim present
+
+.PHONY: help install test security-scan security-full lint format clean run run-prod docker-build docker-scan container-info
 
 # Default target
 help:
@@ -111,9 +116,9 @@ run:
 # Ensure compose stack is up
 ensure-stack:
 	@echo "Checking if development stack is running..."
-	@docker-compose -f ../docker-compose.dev.yml ps | grep -q "Up" || { \
+	@$(COMPOSE_CMD) -f ../docker-compose.dev.yml ps | grep -q "Up" || { \
 		echo "Starting development stack..."; \
-		docker-compose -f ../docker-compose.dev.yml up -d; \
+		$(COMPOSE_CMD) -f ../docker-compose.dev.yml up -d; \
 		echo "Waiting for services to be ready..."; \
 		sleep 15; \
 	}
@@ -149,11 +154,11 @@ reports:
 # Docker commands
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t text-summarization-service:latest .
+	$(CONTAINER_CMD) build -t text-summarization-service:latest .
 
 docker-scan: docker-build
 	@echo "Scanning Docker image for vulnerabilities..."
-	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+	$(CONTAINER_CMD) run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 		-v ${PWD}:/root/.cache/ \
 		aquasec/trivy:latest image text-summarization-service:latest
 

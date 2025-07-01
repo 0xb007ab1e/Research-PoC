@@ -486,6 +486,9 @@ For production deployment, see:
 - [Security Controls](./docs/security/08-security.md) - Comprehensive security documentation
 - [CI/CD Pipeline Details](./docs/ci-cd-pipeline.md) - Detailed pipeline documentation
 
+### 🔗 Integrations
+- [GitHub CLI Integration](./docs/integrations/github-cli.md) - Installation, authentication, and usage guide
+
 ### 🧪 Testing & Quality
 - [End-to-End Testing](./tests/e2e/README.md) - E2E test suite documentation
 - [MVP Completion Summary](./docs/STEP15_MVP_COMPLETION.md) - Project completion status

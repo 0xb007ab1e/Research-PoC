@@ -14,10 +14,10 @@ from .main import app
 from .config import settings
 from .models import (
     ContextCreateRequest,
-    ContextUpdateRequest, 
+    ContextUpdateRequest,
     ContextResponse,
     HealthCheckResponse,
-    ErrorResponse
+    ErrorResponse,
 )
 from .repository import ContextRepository, DatabaseError
 
@@ -26,9 +26,9 @@ __all__ = [
     "settings",
     "ContextCreateRequest",
     "ContextUpdateRequest",
-    "ContextResponse", 
+    "ContextResponse",
     "HealthCheckResponse",
     "ErrorResponse",
     "ContextRepository",
-    "DatabaseError"
+    "DatabaseError",
 ]

@@ -336,6 +336,14 @@ local-stack-logs:
 	@echo "Viewing logs from local development stack..."
 	docker-compose -f docker-compose.dev.yml logs -f
 
+# Start GitHub CLI service
+gh-cli-up:
+	@echo "Starting GitHub CLI service..."
+	docker-compose -f docker-compose.dev.yml --profile gh-tools up -d gh-cli
+	@echo "GitHub CLI service started!"
+	@echo "Access the container with: docker exec -it mcp-gh-cli-dev bash"
+	@echo "Or run commands directly: docker-compose -f docker-compose.dev.yml exec gh-cli gh --help"
+
 # Local run for services (with dependency management)
 local-run: local-stack-up
 	@echo "Starting all services locally..."
@@ -433,6 +441,41 @@ create-migration-configmaps:
 	@# Create ConfigMap for context-service migrations
 	@if [ -d "services/context-service/migrations" ]; then \
 		kubectl create configmap context-migrations --from-file=services/context-service/migrations/ --dry-run=client -o yaml | kubectl apply -f - || true; \
+	fi
+
+# Install GitHub CLI
+# Installs GitHub CLI locally or in Docker container
+gh-install:
+	@echo "Installing GitHub CLI..."
+	@if ! command -v gh &> /dev/null; then \
+		if [ -f /.dockerenv ]; then \
+			echo "Running inside Docker container, installing GitHub CLI..."; \
+			apt-get update && apt-get install -y curl gnupg; \
+			curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg; \
+			echo "deb [arch=$$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null; \
+			apt-get update && apt-get install -y gh; \
+		else \
+			echo "Installing GitHub CLI on host system..."; \
+			curl -sSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg; \
+			echo "deb [arch=$$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null; \
+			sudo apt update && sudo apt install gh -y; \
+		fi; \
+	else \
+		echo "GitHub CLI is already installed."; \
+	fi
+
+# Login to GitHub CLI using device flow
+# NOTE: In CI environments, use GITHUB_TOKEN environment variable instead
+# CI will authenticate using Personal Access Token (PAT) or GITHUB_TOKEN
+# For interactive login, this opens device flow in browser
+gh-login:
+	@echo "Logging into GitHub CLI..."
+	@if [ -n "$$GITHUB_TOKEN" ]; then \
+		echo "Using GITHUB_TOKEN for authentication (CI mode)"; \
+		echo "$$GITHUB_TOKEN" | gh auth login --with-token; \
+	else \
+		echo "Starting interactive device flow login..."; \
+		gh auth login --web; \
 	fi
 
 # Complete deployment pipeline

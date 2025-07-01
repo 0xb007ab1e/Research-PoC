@@ -17,12 +17,16 @@ from sqlalchemy.orm import sessionmaker
 from database_models import Tenant, get_all_metadata
 
 # Set up argument parser for command line options
-parser = argparse.ArgumentParser(description='Initialize new tenant database schema.')
-parser.add_argument('--tenant-slug', required=True, help='Slug of the tenant to initialize')
+parser = argparse.ArgumentParser(description="Initialize new tenant database schema.")
+parser.add_argument(
+    "--tenant-slug", required=True, help="Slug of the tenant to initialize"
+)
 args = parser.parse_args()
 
 # Setup database engine
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/mcp_db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:password@localhost:5432/mcp_db"
+)
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 
@@ -37,16 +41,20 @@ try:
         exit(1)
 
     # Create new tenant entry
-    new_tenant = Tenant(name=args.tenant_slug.title(), slug=args.tenant_slug.lower(), is_active=True)
+    new_tenant = Tenant(
+        name=args.tenant_slug.title(), slug=args.tenant_slug.lower(), is_active=True
+    )
     session.add(new_tenant)
     session.commit()
 
     # Run tenant-specific migrations
     tenant_id = new_tenant.id
-    os.environ['TENANT_ID'] = str(tenant_id)
+    os.environ["TENANT_ID"] = str(tenant_id)
     os.system(f"alembic upgrade head")
 
-    print(f"Tenant '{args.tenant_slug}' initialized with schema '{new_tenant.schema_name}'.")
+    print(
+        f"Tenant '{args.tenant_slug}' initialized with schema '{new_tenant.schema_name}'."
+    )
 
 finally:
     session.close()

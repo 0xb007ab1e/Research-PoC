@@ -239,6 +239,23 @@ services:
     networks:
       - mcp-dev
 
+  # GitHub CLI Tools (Optional - disabled by default)
+  gh-cli:
+    build: ./tools/github-cli
+    container_name: mcp-gh-cli-dev
+    restart: "no"
+    volumes:
+      - .:/workspace
+      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.ssh:/root/.ssh:ro
+    working_dir: /workspace
+    environment:
+      - GITHUB_TOKEN
+    networks:
+      - mcp-dev
+    profiles:
+      - gh-tools
+
 volumes:
   postgres_data:
     driver: local

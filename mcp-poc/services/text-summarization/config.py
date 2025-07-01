@@ -12,10 +12,24 @@ import logging
 class SecuritySettings(BaseSettings):
     """Security-related configuration"""
     
-    # JWT Configuration
-    secret_key: str = Field(..., env="JWT_SECRET_KEY")
-    algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
+    # JWT Configuration with JWKS support
+    secret_key: Optional[str] = Field(default=None, env="JWT_SECRET_KEY")  # Fallback for local dev
+    algorithm: str = Field(default="RS256", env="JWT_ALGORITHM")  # Changed to RS256 for JWKS
     access_token_expire_minutes: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    
+    # Auth Service Configuration
+    auth_service_url: str = Field(default="http://auth-service:8080", env="AUTH_SERVICE_URL")
+    jwks_cache_ttl: int = Field(default=3600, env="JWKS_CACHE_TTL")  # seconds
+    
+    # TLS Configuration
+    enable_tls: bool = Field(default=True, env="ENABLE_TLS")
+    enable_mutual_tls: bool = Field(default=True, env="ENABLE_MUTUAL_TLS")
+    tls_certs_dir: str = Field(default="/etc/certs", env="TLS_CERTS_DIR")
+    
+    # Header Validation
+    require_tenant_id: bool = Field(default=True, env="REQUIRE_TENANT_ID")
+    require_request_id: bool = Field(default=True, env="REQUIRE_REQUEST_ID")
+    auto_generate_request_id: bool = Field(default=True, env="AUTO_GENERATE_REQUEST_ID")
     
     # API Rate Limiting
     rate_limit_calls: int = Field(default=100, env="RATE_LIMIT_CALLS")
@@ -95,6 +109,13 @@ class ServiceSettings(BaseSettings):
     # Metrics
     enable_metrics: bool = Field(default=True, env="ENABLE_METRICS")
     metrics_port: int = Field(default=9090, env="METRICS_PORT")
+    
+    # OpenTelemetry Configuration
+    enable_telemetry: bool = Field(default=True, env="ENABLE_TELEMETRY")
+    otel_exporter_otlp_endpoint: str = Field(default="http://otel-collector:4317", env="OTEL_EXPORTER_OTLP_ENDPOINT")
+    otel_enable_console: bool = Field(default=False, env="OTEL_ENABLE_CONSOLE")
+    otel_trace_sample_rate: float = Field(default=1.0, env="OTEL_TRACE_SAMPLE_RATE")
+    otel_metrics_export_interval: int = Field(default=30, env="OTEL_METRICS_EXPORT_INTERVAL")
     
     @validator('environment')
     def validate_environment(cls, v):

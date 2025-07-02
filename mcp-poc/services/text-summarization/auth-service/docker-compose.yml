@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: auth-vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    command: ["vault", "server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: auth-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+    command: |
+      sh -c "
+        # Enable transit secrets engine
+        vault secrets enable transit
+        
+        # Create JWT signing key
+        vault write -f transit/keys/jwt-signing-key type=rsa-2048
+        
+        echo 'Vault initialized successfully'
+      "
+
+  auth-service:
+    build: .
+    container_name: auth-service
+    ports:
+      - "8443:8443"
+      - "9090:9090"  # Metrics port
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      # Server config
+      SERVER_PORT: "8443"
+      SERVER_READ_TIMEOUT: "30s"
+      SERVER_WRITE_TIMEOUT: "30s"
+      
+      # Vault config
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "dev-root-token"
+      VAULT_TRANSIT_KEY: "jwt-signing-key"
+      
+      # JWT config
+      JWT_ISSUER: "https://auth-service"
+      JWT_AUDIENCE: "api"
+      JWT_TOKEN_EXPIRATION: "24h"
+      JWT_REFRESH_TOKEN_TTL: "168h"  # 7 days
+      JWT_KEY_ROTATION_INTERVAL: "24h"
+      
+      # OAuth config
+      OAUTH_CLIENT_ID: "demo-client"
+      OAUTH_REDIRECT_URI: "http://localhost:3000/callback"
+      OAUTH_CODE_EXPIRATION: "10m"
+      OAUTH_PKCE_REQUIRED: "true"
+    healthcheck:
+      test: ["CMD", "/auth-service", "--health-check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: auth-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+volumes:
+  vault-data:

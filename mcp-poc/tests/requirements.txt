@@ -1,0 +1,37 @@
+# Core Python packages (pinned for stability)
+pip==23.3.1
+setuptools==69.0.3
+wheel==0.42.0
+
+# Testing dependencies for integration tests
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-xdist==3.5.0
+pytest-cov==4.0.0
+
+# Testcontainers for Docker-based testing
+testcontainers==3.7.1
+
+# HTTP client for API testing
+httpx==0.25.2
+aiohttp==3.9.1
+
+# JWT handling for auth tests
+python-jose[cryptography]==3.3.0
+
+# Database testing utilities
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Environment and configuration
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Logging and utilities
+structlog==23.2.0
+faker==20.1.0
+
+# For load testing and performance validation
+locust==2.17.0

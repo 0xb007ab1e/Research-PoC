@@ -1,0 +1,11 @@
+# Trivy ignore file
+# Format: CVE-ID or package name
+
+# Example: Ignore specific CVEs that have been reviewed and deemed acceptable
+# CVE-2023-12345
+
+# Ignore low severity issues in development dependencies
+# python:3.11-slim
+
+# Ignore issues in base images that are out of our control
+# These should be reviewed periodically

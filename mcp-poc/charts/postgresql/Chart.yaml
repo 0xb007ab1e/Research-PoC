@@ -1,0 +1,21 @@
+apiVersion: v2
+name: postgresql-mcp
+description: PostgreSQL with pgvector extension for MCP PoC
+type: application
+version: 0.1.0
+appVersion: "15.4.0"
+
+dependencies:
+  - name: postgresql
+    version: "12.12.10"
+    repository: "https://charts.bitnami.com/bitnami"
+
+maintainers:
+  - name: MCP PoC Team
+
+keywords:
+  - postgresql
+  - database
+  - pgvector
+  - vector
+  - embeddings

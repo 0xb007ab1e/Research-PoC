@@ -1,0 +1,268 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: mcp-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mcp_dev
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_MULTIPLE_DATABASES: context_service,text_summarization,auth_service
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_user -d mcp_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mcp-dev
+
+  # HashiCorp Vault (Development Mode)
+  vault:
+    image: hashicorp/vault:latest
+    container_name: mcp-vault-dev
+    restart: unless-stopped
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: myroot
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - mcp-dev
+
+  # Redis Cache (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mcp-dev
+
+  # JWKS Mock Server (Development)
+  jwks-server:
+    image: nginx:alpine
+    container_name: mcp-jwks-dev
+    restart: unless-stopped
+    volumes:
+      - ./scripts/dev-jwks:/usr/share/nginx/html
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/.well-known/jwks.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - mcp-dev
+
+  # Auth Service with mTLS
+  auth-service:
+    build: ./services/text-summarization/auth-service
+    container_name: mcp-auth-service
+    restart: unless-stopped
+    environment:
+      # Server config
+      SERVER_PORT: "8443"
+      SERVER_READ_TIMEOUT: "30s"
+      SERVER_WRITE_TIMEOUT: "30s"
+      
+      # Vault config
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "myroot"
+      VAULT_TRANSIT_KEY: "jwt-signing-key"
+      
+      # JWT config
+      JWT_ISSUER: "https://auth-service"
+      JWT_AUDIENCE: "api"
+      JWT_TOKEN_EXPIRATION: "24h"
+      JWT_REFRESH_TOKEN_TTL: "168h"
+      JWT_KEY_ROTATION_INTERVAL: "24h"
+      
+      # OAuth config
+      OAUTH_CLIENT_ID: "demo-client"
+      OAUTH_REDIRECT_URI: "http://localhost:3000/callback"
+      OAUTH_CODE_EXPIRATION: "10m"
+      OAUTH_PKCE_REQUIRED: "true"
+      
+      # TLS config
+      TLS_CERT_FILE: "/etc/certs/server-cert.pem"
+      TLS_KEY_FILE: "/etc/certs/server-key.pem"
+      TLS_CA_FILE: "/etc/certs/ca-cert.pem"
+      ENABLE_MTLS: "true"
+      
+      # Python requests CA bundle for outgoing requests
+      REQUESTS_CA_BUNDLE: "/etc/certs/ca-cert.pem"
+    volumes:
+      - ./certs/docker/auth-service:/etc/certs:ro
+    ports:
+      - "8443:8443"
+      - "9090:9090"
+    depends_on:
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-k", "--cert", "/etc/certs/server-cert.pem", "--key", "/etc/certs/server-key.pem", "--cacert", "/etc/certs/ca-cert.pem", "https://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcp-dev
+
+  # Context Service with mTLS
+  context-service:
+    build: ./services/context-service
+    container_name: mcp-context-service
+    restart: unless-stopped
+    environment:
+      # Service config
+      SERVICE_NAME: "mcp-context-service"
+      SERVICE_VERSION: "1.0.0"
+      ENVIRONMENT: "development"
+      HOST: "0.0.0.0"
+      PORT: "8001"
+      DEBUG: "true"
+      
+      # Database config
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "context_service"
+      DB_USER: "mcp_user"
+      DB_PASSWORD: "mcp_password"
+      
+      # Security config
+      AUTH_SERVICE_URL: "https://auth-service:8443"
+      ENABLE_TLS: "true"
+      ENABLE_MUTUAL_TLS: "true"
+      TLS_CERTS_DIR: "/etc/certs"
+      
+      # Python requests CA bundle for outgoing requests
+      REQUESTS_CA_BUNDLE: "/etc/certs/ca-cert.pem"
+    volumes:
+      - ./certs/docker/context-service:/etc/certs:ro
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-k", "--cert", "/etc/certs/server-cert.pem", "--key", "/etc/certs/server-key.pem", "--cacert", "/etc/certs/ca-cert.pem", "https://localhost:8001/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcp-dev
+
+  # Text Summarization Service with mTLS
+  text-summarization:
+    build: ./services/text-summarization
+    container_name: mcp-text-summarization
+    restart: unless-stopped
+    environment:
+      # Service config
+      SERVICE_NAME: "mcp-text-summarization"
+      SERVICE_VERSION: "1.0.0"
+      ENVIRONMENT: "development"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      DEBUG: "true"
+      
+      # Security config
+      AUTH_SERVICE_URL: "https://auth-service:8443"
+      ENABLE_TLS: "true"
+      ENABLE_MUTUAL_TLS: "true"
+      TLS_CERTS_DIR: "/etc/certs"
+      
+      # Python requests CA bundle for outgoing requests
+      REQUESTS_CA_BUNDLE: "/etc/certs/ca-cert.pem"
+      
+      # AI model config (optional)
+      # OPENAI_API_KEY: "your-openai-key"
+      # HF_API_TOKEN: "your-huggingface-token"
+    volumes:
+      - ./certs/docker/text-summarization:/etc/certs:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-k", "--cert", "/etc/certs/server-cert.pem", "--key", "/etc/certs/server-key.pem", "--cacert", "/etc/certs/ca-cert.pem", "https://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcp-dev
+
+  # Development Tools - Adminer (Database Management)
+  adminer:
+    image: adminer:latest
+    container_name: mcp-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mcp-dev
+
+  # GitHub CLI Tools (Optional - disabled by default)
+  gh-cli:
+    build: ./tools/github-cli
+    container_name: mcp-gh-cli-dev
+    restart: "no"
+    volumes:
+      - .:/workspace
+      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.ssh:/root/.ssh:ro
+    working_dir: /workspace
+    environment:
+      - GITHUB_TOKEN
+    networks:
+      - mcp-dev
+    profiles:
+      - gh-tools
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  mcp-dev:
+    driver: bridge
+    name: mcp-development

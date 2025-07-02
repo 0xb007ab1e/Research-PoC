@@ -1,0 +1,14 @@
+apiVersion: v2
+name: context-service
+description: MCP Context Service - Multi-tenant context storage and retrieval
+type: application
+version: 1.0.0
+appVersion: 1.0.0
+keywords:
+  - context
+  - storage
+  - multi-tenant
+  - mcp
+home: https://github.com/your-org/mcp-poc
+sources:
+  - https://github.com/your-org/mcp-poc

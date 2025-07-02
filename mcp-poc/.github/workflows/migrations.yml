@@ -1,0 +1,275 @@
+name: Database Migrations
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'migrations/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run migrations against'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+env:
+  PYTHON_VERSION: "3.11"
+  GO_VERSION: "1.21"
+
+jobs:
+  validate-migrations:
+    name: Validate Migration Scripts
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mcp_test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Install Python dependencies
+      run: |
+        cd migrations
+        python -m pip install --upgrade pip
+        pip install alembic==1.13.1 sqlalchemy==2.0.23 psycopg2-binary==2.9.9
+        
+    - name: Install Go dependencies
+      run: |
+        cd migrations/go
+        go mod init migrate || true
+        go get github.com/lib/pq
+        
+    - name: Test Alembic configuration
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations
+        echo "Testing Alembic configuration..."
+        alembic current
+        alembic check
+        
+    - name: Run base schema migrations (Alembic)
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations
+        echo "Running base schema migrations with Alembic..."
+        alembic upgrade head
+        
+    - name: Test tenant schema creation (Alembic)
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+        TENANT_ID: test-tenant
+      run: |
+        cd migrations
+        echo "Testing tenant schema creation..."
+        alembic upgrade head
+        
+    - name: Test Go migration scripts
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations/go
+        echo "Testing Go migration utilities..."
+        go build -o migrate migrate.go
+        
+        # Test base migrations
+        ./migrate -type=base
+        
+        # Test tenant migrations
+        ./migrate -type=tenant -tenant-schema=tenant_go_test
+        
+    - name: Verify database schema
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        echo "Verifying database schema..."
+        
+        # Check that base tables exist
+        psql $DATABASE_URL -c "\dt public.*"
+        
+        # Check that tenant schema was created
+        psql $DATABASE_URL -c "\dn"
+        
+        # Check tenant tables
+        psql $DATABASE_URL -c "\dt tenant_test_tenant.*"
+        psql $DATABASE_URL -c "\dt tenant_go_test.*"
+
+  test-tenant-bootstrap:
+    name: Test Tenant Bootstrap Script
+    runs-on: ubuntu-latest
+    needs: validate-migrations
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mcp_test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        cd migrations
+        python -m pip install --upgrade pip
+        pip install alembic==1.13.1 sqlalchemy==2.0.23 psycopg2-binary==2.9.9
+        
+    - name: Initialize base schema
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations
+        alembic upgrade head
+        
+    - name: Test tenant initialization script
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations
+        echo "Testing tenant initialization..."
+        python init_db.py --tenant-slug=test-company
+        
+        # Verify tenant was created
+        psql $DATABASE_URL -c "SELECT id, name, slug, schema_name FROM (SELECT *, 'tenant_' || slug as schema_name FROM tenants) t WHERE slug = 'test-company';"
+        
+        # Verify tenant schema exists
+        psql $DATABASE_URL -c "\dt tenant_test_company.*"
+
+  migration-rollback-test:
+    name: Test Migration Rollback
+    runs-on: ubuntu-latest
+    needs: validate-migrations
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mcp_test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        cd migrations
+        python -m pip install --upgrade pip
+        pip install alembic==1.13.1 sqlalchemy==2.0.23 psycopg2-binary==2.9.9
+        
+    - name: Test migration rollback
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mcp_test_db
+      run: |
+        cd migrations
+        echo "Testing migration rollback..."
+        
+        # Apply migrations
+        alembic upgrade head
+        
+        # Check current revision
+        alembic current
+        
+        # Rollback to base (should go to revision 001)
+        alembic downgrade 001
+        
+        # Verify tables were removed/modified appropriately
+        alembic current
+
+  deploy-migrations:
+    name: Deploy Migrations
+    runs-on: ubuntu-latest
+    needs: [validate-migrations, test-tenant-bootstrap, migration-rollback-test]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        cd migrations
+        python -m pip install --upgrade pip
+        pip install alembic==1.13.1 sqlalchemy==2.0.23 psycopg2-binary==2.9.9
+        
+    - name: Run migrations
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        ENVIRONMENT: ${{ github.event.inputs.environment || 'development' }}
+      run: |
+        cd migrations
+        echo "Running migrations for environment: $ENVIRONMENT"
+        
+        # Run base schema migrations
+        echo "Applying base schema migrations..."
+        alembic upgrade head
+        
+        echo "Migrations completed successfully!"
+        
+    - name: Notify deployment
+      if: success()
+      run: |
+        echo "Database migrations deployed successfully to ${{ github.event.inputs.environment || 'development' }}"

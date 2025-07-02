@@ -1,0 +1,108 @@
+# PostgreSQL with pgvector configuration for mcp-poc
+# Bitnami PostgreSQL Helm Chart Values
+
+global:
+  postgresql:
+    auth:
+      postgresPassword: "changeme"
+      username: "mcp_user"
+      password: "changeme"
+      database: "mcp_poc"
+
+# Override values for Bitnami PostgreSQL chart
+postgresql:
+  # Authentication
+  auth:
+    postgresPassword: "changeme"
+    username: "mcp_user"
+    password: "changeme"
+    database: "mcp_poc"
+    
+  # Enable pgvector extension
+  primary:
+    initdb:
+      scripts:
+        init-pgvector.sql: |
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          GRANT ALL PRIVILEGES ON DATABASE mcp_poc TO mcp_user;
+    
+    # Configure persistent storage
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+    
+    # Resource limits
+    resources:
+      limits:
+        memory: 1Gi
+        cpu: 500m
+      requests:
+        memory: 512Mi
+        cpu: 250m
+    
+    # PostgreSQL configuration for pgvector
+    postgresqlConfiguration:
+      shared_preload_libraries: "vector"
+      max_connections: "100"
+      shared_buffers: "128MB"
+      effective_cache_size: "512MB"
+      maintenance_work_mem: "64MB"
+      checkpoint_completion_target: "0.9"
+      wal_buffers: "16MB"
+      default_statistics_target: "100"
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+      work_mem: "4MB"
+      min_wal_size: "1GB"
+      max_wal_size: "4GB"
+    
+    # TLS Configuration
+    tls:
+      enabled: true
+      certificatesSecret: postgresql-tls-certs
+      certFilename: tls.crt
+      certKeyFilename: tls.key
+      certCAFilename: ca.crt
+      
+  # Service configuration  
+  service:
+    type: ClusterIP
+    ports:
+      postgresql: 5432
+      
+  # Network Policy (handled by separate template)
+  networkPolicy:
+    enabled: false  # We use custom NetworkPolicy
+    
+  # Additional pod labels for network policy
+  commonLabels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: postgresql-mcp
+    
+  # Security context
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+    runAsNonRoot: true
+    
+  # Service account
+  serviceAccount:
+    create: true
+    name: postgresql-mcp
+    
+  # Metrics
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+      
+# Namespace configuration
+namespaceOverride: mcp-poc
+
+# Additional environment variables for pgvector
+extraEnvVars:
+  - name: POSTGRES_INITDB_ARGS
+    value: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"

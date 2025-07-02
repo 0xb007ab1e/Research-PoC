@@ -1,0 +1,112 @@
+# Trivy configuration file
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/
+
+# Scan settings
+scan:
+  # Security scan types to run
+  security-checks: 
+    - vuln
+    - secret
+    - config
+    - license
+  
+  # Vulnerability types to scan
+  vuln-type:
+    - os
+    - library
+  
+  # Severity levels to report
+  severity:
+    - UNKNOWN
+    - LOW
+    - MEDIUM
+    - HIGH
+    - CRITICAL
+  
+  # Exit code when vulnerabilities are found
+  exit-code: 0  # Don't fail the build, just report
+  
+  # Ignore unfixed vulnerabilities
+  ignore-unfixed: true
+  
+  # Scan all files in the image
+  scan-all-unpackaged: true
+
+# Output settings
+format: table
+output: ""
+
+# Cache settings
+cache:
+  # Clear cache before scanning
+  clear: false
+  
+  # Cache directory
+  dir: /tmp/trivy-cache
+
+# Database settings
+db:
+  # Skip database update
+  skip-update: false
+  
+  # Download database to specific location
+  repository: ghcr.io/aquasecurity/trivy-db
+
+# Vulnerability settings
+vulnerability:
+  # Vulnerability data source
+  type: 
+    - os
+    - library
+  
+  # Show only fixed vulnerabilities
+  ignore-unfixed: false
+
+# License settings
+license:
+  # License confidence level (0.0-1.0)
+  confidence-level: 0.9
+  
+  # Forbidden licenses
+  forbidden:
+    - GPL-2.0
+    - GPL-3.0
+    - AGPL-1.0
+    - AGPL-3.0
+  
+  # Ignored licenses
+  ignored:
+    - MIT
+    - Apache-2.0
+    - BSD-2-Clause
+    - BSD-3-Clause
+    - ISC
+
+# Secret scanning settings
+secret:
+  # Secret scanning config
+  config: .secret-scan.yaml
+
+# File patterns to ignore
+file-patterns:
+  - "**/*.md"
+  - "**/*.txt"
+  - "**/LICENSE"
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/.pytest_cache/**"
+  - "**/__pycache__/**"
+
+# Paths to skip
+skip-dirs:
+  - .git
+  - .pytest_cache
+  - __pycache__
+  - node_modules
+  - vendor
+
+# Skip specific files
+skip-files:
+  - "*.md"
+  - "*.txt"
+  - LICENSE

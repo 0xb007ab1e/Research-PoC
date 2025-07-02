@@ -1,0 +1,28 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: postgresql-tls-cert
+  namespace: mcp-poc
+spec:
+  secretName: postgresql-tls-certs
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  commonName: postgresql-mcp.mcp-poc.svc.cluster.local
+  dnsNames:
+  - postgresql-mcp
+  - postgresql-mcp.mcp-poc
+  - postgresql-mcp.mcp-poc.svc
+  - postgresql-mcp.mcp-poc.svc.cluster.local
+  - localhost
+  ipAddresses:
+  - 127.0.0.1
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}

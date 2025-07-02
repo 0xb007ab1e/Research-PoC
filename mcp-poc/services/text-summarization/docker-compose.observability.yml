@@ -1,0 +1,245 @@
+version: '3.8'
+
+services:
+  # Text Summarization Service
+  text-summarization:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+      - "9090:9090"  # Prometheus metrics
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - ENABLE_TELEMETRY=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_ENABLE_CONSOLE=false
+      - OTEL_TRACE_SAMPLE_RATE=1.0
+      - OTEL_METRICS_EXPORT_INTERVAL=30
+      - ENABLE_METRICS=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_API_TOKEN=${HF_API_TOKEN}
+    depends_on:
+      - otel-collector
+      - jaeger
+      - prometheus
+    networks:
+      - observability
+    volumes:
+      - ./logs:/app/logs
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.89.0
+    command: ["--config=/etc/otel-collector-config.yml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter metrics
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - observability
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # Jaeger gRPC
+      - "14268:14268"  # Jaeger HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - observability
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    ports:
+      - "9091:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - observability
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - observability
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:2.9.2
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - observability
+
+  # Promtail for log shipping
+  promtail:
+    image: grafana/promtail:2.9.2
+    volumes:
+      - ./logs:/var/log/app
+      - ./promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+---
+# OpenTelemetry Collector Configuration (save as otel-collector-config.yml)
+# receivers:
+#   otlp:
+#     protocols:
+#       grpc:
+#         endpoint: 0.0.0.0:4317
+#       http:
+#         endpoint: 0.0.0.0:4318
+#   
+#   prometheus:
+#     config:
+#       scrape_configs:
+#         - job_name: 'text-summarization'
+#           static_configs:
+#             - targets: ['text-summarization:9090']
+# 
+# processors:
+#   batch:
+#     timeout: 1s
+#     send_batch_size: 1024
+#   
+#   resource:
+#     attributes:
+#       - key: service.cluster
+#         value: local-dev
+#         action: insert
+#       - key: deployment.environment
+#         value: development
+#         action: insert
+# 
+# exporters:
+#   jaeger:
+#     endpoint: jaeger:14250
+#     tls:
+#       insecure: true
+#   
+#   prometheus:
+#     endpoint: "0.0.0.0:8889"
+#   
+#   prometheusremotewrite:
+#     endpoint: "http://prometheus:9090/api/v1/write"
+#   
+#   logging:
+#     loglevel: info
+# 
+# service:
+#   pipelines:
+#     traces:
+#       receivers: [otlp]
+#       processors: [batch, resource]
+#       exporters: [jaeger, logging]
+#     
+#     metrics:
+#       receivers: [otlp, prometheus]
+#       processors: [batch, resource]
+#       exporters: [prometheus, prometheusremotewrite, logging]
+#   
+#   extensions: [health_check]
+#   
+# extensions:
+#   health_check:
+#     endpoint: 0.0.0.0:13133
+
+---
+# Prometheus Configuration (save as prometheus.yml)
+# global:
+#   scrape_interval: 15s
+#   evaluation_interval: 15s
+# 
+# scrape_configs:
+#   - job_name: 'text-summarization'
+#     static_configs:
+#       - targets: ['text-summarization:9090']
+#     scrape_interval: 15s
+#     metrics_path: /metrics
+#   
+#   - job_name: 'otel-collector'
+#     static_configs:
+#       - targets: ['otel-collector:8888', 'otel-collector:8889']
+#     scrape_interval: 15s
+
+---
+# Promtail Configuration (save as promtail-config.yml)
+# server:
+#   http_listen_port: 9080
+#   grpc_listen_port: 0
+# 
+# positions:
+#   filename: /tmp/positions.yaml
+# 
+# clients:
+#   - url: http://loki:3100/loki/api/v1/push
+# 
+# scrape_configs:
+#   - job_name: text-summarization
+#     static_configs:
+#       - targets:
+#           - localhost
+#         labels:
+#           job: text-summarization
+#           __path__: /var/log/app/*.log
+#     pipeline_stages:
+#       - json:
+#           expressions:
+#             timestamp: timestamp
+#             level: level
+#             message: event
+#             service: service
+#             trace_id: trace_id
+#             span_id: span_id
+#       - timestamp:
+#           source: timestamp
+#           format: RFC3339Nano
+#       - labels:
+#           level:
+#           service:
+#           trace_id:
+#           span_id:

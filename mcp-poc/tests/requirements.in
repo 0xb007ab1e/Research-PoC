@@ -1,0 +1,37 @@
+# Core Python packages
+pip
+setuptools
+wheel
+
+# Testing dependencies for integration tests
+pytest
+pytest-asyncio
+pytest-xdist
+pytest-cov
+
+# Testcontainers for Docker-based testing
+testcontainers
+
+# HTTP client for API testing
+httpx
+aiohttp
+
+# JWT handling for auth tests
+python-jose[cryptography]
+
+# Database testing utilities
+asyncpg
+psycopg2-binary
+sqlalchemy
+
+# Environment and configuration
+python-dotenv
+pydantic
+pydantic-settings
+
+# Logging and utilities
+structlog
+faker
+
+# For load testing and performance validation
+locust

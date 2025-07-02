@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-poc
+  labels:
+    name: mcp-poc
+    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/part-of: mcp-poc

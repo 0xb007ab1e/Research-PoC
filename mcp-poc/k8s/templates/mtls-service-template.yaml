@@ -1,0 +1,292 @@
+---
+# Template for creating mTLS-enabled services
+# This template shows the standard configuration for services with mTLS support
+apiVersion: v1
+kind: Template
+metadata:
+  name: mtls-service-template
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mtls-service-template
+    app.kubernetes.io/component: security
+    security.mcp.platform/template: "true"
+  annotations:
+    description: "Template for deploying services with mTLS, Vault integration, and security hardening"
+    template.openshift.io/bindable: "false"
+parameters:
+- name: SERVICE_NAME
+  description: "Name of the service"
+  required: true
+- name: IMAGE_REPOSITORY
+  description: "Container image repository"
+  required: true
+- name: IMAGE_TAG
+  description: "Container image tag"
+  value: "latest"
+- name: REPLICAS
+  description: "Number of service replicas"
+  value: "2"
+- name: MTLS_ENABLED
+  description: "Enable mutual TLS"
+  value: "true"
+- name: VAULT_ROLE
+  description: "Vault role for the service"
+  required: true
+- name: CPU_REQUEST
+  description: "CPU request"
+  value: "100m"
+- name: MEMORY_REQUEST
+  description: "Memory request"
+  value: "128Mi"
+- name: CPU_LIMIT
+  description: "CPU limit"
+  value: "500m"
+- name: MEMORY_LIMIT
+  description: "Memory limit"
+  value: "512Mi"
+
+objects:
+# Service Account
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${SERVICE_NAME}
+    labels:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+      app.kubernetes.io/component: service
+      security.mcp.platform/mtls: "${MTLS_ENABLED}"
+
+# Deployment
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${SERVICE_NAME}
+    labels:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+      app.kubernetes.io/component: service
+      security.mcp.platform/mtls: "${MTLS_ENABLED}"
+  spec:
+    replicas: ${{REPLICAS}}
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: ${SERVICE_NAME}
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: ${SERVICE_NAME}
+          app.kubernetes.io/component: service
+          security.mcp.platform/mtls: "${MTLS_ENABLED}"
+        annotations:
+          vault.hashicorp.com/agent-inject: "true"
+          vault.hashicorp.com/role: "${VAULT_ROLE}"
+          vault.hashicorp.com/agent-inject-secret-credentials: "secret/data/${SERVICE_NAME}"
+      spec:
+        serviceAccountName: ${SERVICE_NAME}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+        - name: ${SERVICE_NAME}
+          image: ${IMAGE_REPOSITORY}:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          ports:
+          - name: https
+            containerPort: 8443
+            protocol: TCP
+          env:
+          - name: ENABLE_MTLS
+            value: "${MTLS_ENABLED}"
+          - name: TLS_CERT_FILE
+            value: "/etc/certs/tls.crt"
+          - name: TLS_KEY_FILE
+            value: "/etc/certs/tls.key"
+          - name: TLS_CA_FILE
+            value: "/etc/ssl/ca/mcp-ca-cert.pem"
+          - name: CLIENT_CERT_FILE
+            value: "/etc/ssl/client/tls.crt"
+          - name: CLIENT_KEY_FILE
+            value: "/etc/ssl/client/tls.key"
+          - name: SSL_CERT_FILE
+            value: "/etc/ssl/certs/ca-certificates.crt"
+          - name: REQUESTS_CA_BUNDLE
+            value: "/etc/ssl/certs/ca-certificates.crt"
+          resources:
+            requests:
+              cpu: ${CPU_REQUEST}
+              memory: ${MEMORY_REQUEST}
+            limits:
+              cpu: ${CPU_LIMIT}
+              memory: ${MEMORY_LIMIT}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: cache
+            mountPath: /home/nonroot/.cache
+          - name: tls-certs
+            mountPath: /etc/certs
+            readOnly: true
+          - name: client-certs
+            mountPath: /etc/ssl/client
+            readOnly: true
+          - name: ca-certs
+            mountPath: /etc/ssl/ca
+            readOnly: true
+          - name: vault-secrets
+            mountPath: /vault/secrets
+            readOnly: true
+        volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: tls-certs
+          secret:
+            secretName: ${SERVICE_NAME}-tls
+            defaultMode: 0400
+        - name: client-certs
+          secret:
+            secretName: mcp-client-cert
+            defaultMode: 0400
+        - name: ca-certs
+          projected:
+            defaultMode: 0444
+            sources:
+            - secret:
+                name: mcp-ca-cert
+                items:
+                - key: ca-cert.pem
+                  path: mcp-ca-cert.pem
+            - secret:
+                name: vault-ca-cert
+                items:
+                - key: ca.crt
+                  path: vault-ca-cert.pem
+                optional: true
+        - name: vault-secrets
+          emptyDir: {}
+
+# Service
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${SERVICE_NAME}
+    labels:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+      app.kubernetes.io/component: service
+      security.mcp.platform/mtls: "${MTLS_ENABLED}"
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "https"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "https"
+  spec:
+    type: ClusterIP
+    ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+    selector:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+
+# NetworkPolicy
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: ${SERVICE_NAME}
+    labels:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+      app.kubernetes.io/component: security
+  spec:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: ${SERVICE_NAME}
+    policyTypes:
+    - Ingress
+    - Egress
+    ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: default
+      - podSelector:
+          matchLabels:
+            security.mcp.platform/mtls: "true"
+      ports:
+      - protocol: TCP
+        port: 8443
+    egress:
+    # Allow DNS
+    - to: []
+      ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+    # Allow Vault
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: vault-system
+      ports:
+      - protocol: TCP
+        port: 8200
+    # Allow database
+    - to:
+      - podSelector:
+          matchLabels:
+            app: postgresql
+      ports:
+      - protocol: TCP
+        port: 5432
+    # Allow service-to-service communication
+    - to:
+      - podSelector:
+          matchLabels:
+            security.mcp.platform/mtls: "true"
+      ports:
+      - protocol: TCP
+        port: 8443
+
+# PodDisruptionBudget
+- apiVersion: policy/v1
+  kind: PodDisruptionBudget
+  metadata:
+    name: ${SERVICE_NAME}
+    labels:
+      app.kubernetes.io/name: ${SERVICE_NAME}
+      app.kubernetes.io/component: availability
+  spec:
+    minAvailable: 1
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: ${SERVICE_NAME}

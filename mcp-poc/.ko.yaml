@@ -1,0 +1,53 @@
+# Ko configuration for building Go images with SBOM
+# https://ko.build/configuration/
+
+# Base image for all Go builds
+defaultBaseImage: gcr.io/distroless/static:nonroot
+
+# Build configurations
+builds:
+  - id: auth-service
+    dir: ./services/text-summarization/auth-service
+    main: ./cmd/server
+    env:
+      - CGO_ENABLED=0
+      - GOOS=linux
+      - GOARCH=amd64
+    ldflags:
+      - -w -s -extldflags "-static"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+# Registry settings
+registry:
+  ghcr.io:
+    username: ${GITHUB_ACTOR}
+    password: ${GITHUB_TOKEN}
+
+# SBOM settings
+sboms:
+  - syft
+
+# Image metadata
+metadata:
+  labels:
+    org.opencontainers.image.source: "https://github.com/{{.Repository}}"
+    org.opencontainers.image.title: "MCP Auth Service"
+    org.opencontainers.image.description: "Authentication service for MCP platform"
+    org.opencontainers.image.vendor: "MCP Team"
+    org.opencontainers.image.licenses: "MIT"
+
+# Additional settings
+settings:
+  # Enable reproducible builds
+  reproducible: true
+  
+  # Security settings
+  security:
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
